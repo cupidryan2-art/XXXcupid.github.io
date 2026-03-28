@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --color-blush: #FFD6E0;
+  --color-blush-light: #FFF0F3;
+  --color-deep: #0a0a0f;
+  --color-deep-soft: #12121a;
+  --color-warm-white: #FAF8F5;
+
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'Noto Sans SC', sans-serif;
+  --font-handwriting: 'Caveat', 'Dancing Script', cursive;
+}
+
+/* Smooth scroll for the whole page */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+/* Hide scrollbar but keep scroll functionality */
+body::-webkit-scrollbar {
+  display: none;
+}
+body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Selection color */
+::selection {
+  background-color: #FFD6E0;
+  color: #0a0a0f;
+}
+
+/* Gentle floating animation for the scroll arrow */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(8px); }
+}
+
+.animate-float {
+  animation: float 2.4s ease-in-out infinite;
+}
+
+/* Pulsing glow for the last timeline frame */
+@keyframes glow-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+.glow-orb {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
