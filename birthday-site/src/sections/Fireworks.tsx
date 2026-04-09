@@ -39,7 +39,7 @@ function hexToRgb(hex: string) {
 
 export default function Fireworks() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const sectionRef = useRef<HTMLElement>(null)
+  const sectionRef = useRef<HTMLElement>(null);
   const particlesRef = useRef<Particle[]>([])
   const rocketsRef = useRef<Rocket[]>([])
   const animRef = useRef<number>(0)

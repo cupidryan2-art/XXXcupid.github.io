@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const prizes = [
-  '兑换券：一杯奶茶🥤',
+  '兑换券：一杯奶茶',
   '兑换券：一顿饭🍚',
   '你可以让我做一件任何事，无条件答应',
   '今天你最大，公主殿下 👑',
