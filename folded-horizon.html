@@ -8,27 +8,30 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after {
-      margin: 0; padding: 0; box-sizing: border-box;
-    }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     html, body {
       width: 100%; height: 100%;
       overflow: hidden;
-      background: #FFF5F5; /* matches left-side top colour — prevents flash on load */
+      background: #FFF5F5;
     }
 
-    canvas {
+    /* Two stacked canvas layers. #cl is the left base; #cr is the right layer
+       blurred with CSS filter — this works universally across all browsers and
+       iOS Safari versions, unlike canvas ctx.filter which requires Safari 18+. */
+    #cl, #cr {
       position: fixed;
       top: 0; left: 0;
       display: block;
+      width: 100%; height: 100%;
     }
 
-    /* ── Central inscription ──────────────────────────────────────────
-       mix-blend-mode: difference inverts the channel values against the
-       pastel background, producing a deep, smoky complement that stays
-       legible across both colour fields and shifts subtly as the boundary
-       sweeps through. */
+    /* ── Boundary blur ────────────────────────────────────────────────────────
+       Increase the px value for a softer, dreamier liquid feel.
+       Decrease for a crisper (but still organic) edge. Range: 30–120px.      */
+    #cr { filter: blur(64px); }
+
+    /* ── Centre inscription ───────────────────────────────────────────────── */
     #inscription {
       position: fixed;
       top: 50%; left: 50%;
@@ -37,209 +40,186 @@
       pointer-events: none;
       user-select: none;
       z-index: 10;
+      /* difference blend: white text on pastels reads as a deep smoky complement
+         and shifts colour dynamically as the liquid boundary sweeps through it. */
       mix-blend-mode: difference;
       opacity: 0;
-      animation: breatheIn 3s cubic-bezier(.16, 1, .3, 1) 0.6s forwards;
+      animation: breatheIn 3s cubic-bezier(.16, 1, .3, 1) 0.7s forwards;
     }
-
-    @keyframes breatheIn {
-      to { opacity: 1; }
-    }
+    @keyframes breatheIn { to { opacity: 1; } }
 
     .main-date {
-      font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+      font-family: 'Cormorant Garamond', Georgia, serif;
       font-weight: 300;
       font-size: clamp(1.9rem, 5.2vw, 4rem);
       letter-spacing: 0.22em;
-      color: #ffffff;
+      color: #fff;
       line-height: 1;
       white-space: nowrap;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
     }
-
     .tagline {
-      font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+      font-family: 'Cormorant Garamond', Georgia, serif;
       font-weight: 300;
       font-style: italic;
-      font-size: clamp(0.55rem, 1.15vw, 0.9rem);
+      font-size: clamp(0.56rem, 1.15vw, 0.88rem);
       letter-spacing: 0.4em;
-      color: #ffffff;
-      opacity: 0.68;
+      color: #fff;
+      opacity: 0.65;
       margin-top: 0.85em;
       white-space: nowrap;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
     }
   </style>
 </head>
 <body>
 
-<canvas id="canvas"></canvas>
+<!-- Layer 1: left gradient — always full-screen, no filter -->
+<canvas id="cl"></canvas>
+
+<!-- Layer 2: right gradient — clipped to wave region, CSS-blurred for soft edge -->
+<canvas id="cr"></canvas>
 
 <div id="inscription">
-  <!-- ↓ Edit the inscription text here ↓ -->
+  <!-- ↓ Edit inscription text here ↓ -->
   <div class="main-date">January 26th</div>
   <div class="tagline">two skies, one timeline.</div>
 </div>
 
 <script>
 /* ═══════════════════════════════════════════════════════════════════════
-   THE FOLDED HORIZON  ·  fluid timezone canvas  ·  vanilla JS + Canvas 2D
+   THE FOLDED HORIZON  ·  two-canvas fluid timezone art piece
    ═══════════════════════════════════════════════════════════════════════
 
-   ┌── TWEAKABLE PARAMETERS ─────────────────────────────────────────────┐
-   │ All colour values, physics constants, and text live in this block.   │
-   └─────────────────────────────────────────────────────────────────────┘ */
+   ┌── TWEAKABLE PARAMETERS ──────────────────────────────────────────┐  */
 
-// ── Colour palettes ───────────────────────────────────────────────────────
-//   Left side  → Malaysia (dawn — warm rose & cream)
-const C_LEFT_TOP    = '#FFF5F5';   // ← top-left   | creamy white
-const C_LEFT_BOTTOM = '#FCE4EC';   // ← bottom-left | pale pink
+// Left side  (Malaysia — dawn, rose/cream)
+const C_LEFT_TOP    = '#FFF5F5';   // ← creamy white
+const C_LEFT_BOTTOM = '#FCE4EC';   // ← pale rose
 
-//   Right side → Sydney (dusk — soft blue-violet)
-const C_RIGHT_TOP    = '#E8EAF6';  // ← top-right    | misted lavender
-const C_RIGHT_BOTTOM = '#C5CAE9';  // ← bottom-right | dusty periwinkle
+// Right side (Sydney — dusk, blue-violet)
+const C_RIGHT_TOP    = '#E8EAF6';  // ← soft lavender
+const C_RIGHT_BOTTOM = '#C5CAE9';  // ← dusty periwinkle
 
-// ── Fluid physics ─────────────────────────────────────────────────────────
-const LERP_FACTOR = 0.040;   // boundary inertia — lower = dreamier lag [0.01…0.20]
-const WAVE_AMP    = 54;      // oscillation radius in px               [20…150]
-const WAVE_FREQ   = 0.0026;  // wave vertical density                  [0.001…0.008]
-const WAVE_SPEED  = 0.00030; // animation time-scale                   [0.0001…0.001]
-const BLEND_BLUR  = 52;      // boundary softness in px                [20…100]
-// Tip: on low-end mobile reduce BLEND_BLUR to ≈28 for better frame-rate.
+// Fluid physics
+const LERP_FACTOR = 0.038;   // boundary lag   [0.01=dreamiest … 0.20=snappiest]
+const WAVE_AMP    = 56;      // oscillation px [20 … 150]
+const WAVE_FREQ   = 0.0026;  // wave density   [0.001 … 0.008]
+const WAVE_SPEED  = 0.00030; // anim speed     [0.0001 … 0.001]
+// Boundary softness is controlled by  #cr { filter: blur(Xpx) }  in CSS above.
 
-/* └── END TWEAKABLE PARAMETERS ──────────────────────────────────────────── */
+/*  └── END TWEAKABLE PARAMETERS ──────────────────────────────────────┘ */
 
-// ── Canvas setup ──────────────────────────────────────────────────────────
-const canvas = document.getElementById('canvas');
-const ctx    = canvas.getContext('2d');
+// ── Canvas references ──────────────────────────────────────────────────────
+const cl  = document.getElementById('cl');
+const ctL = cl.getContext('2d');
+const cr  = document.getElementById('cr');
+const ctR = cr.getContext('2d');
 
 let W, H;
-let targetBound  = 0.5;   // normalised target x of boundary (0 = full-left, 1 = full-right)
-let currentBound = 0.5;   // lerp-smoothed current position driving the render
-let gyroActive   = false;
+let targetBound  = 0.5;
+let currentBound = 0.5;
 
-// Padded offscreen canvas — the extra PAD pixels on every edge absorb the
-// Gaussian blur so it never clips at the screen border.
-let off, offCtx;
-const PAD = BLEND_BLUR * 2;
-
-function initOff () {
-  off        = document.createElement('canvas');
-  off.width  = W + PAD * 2;
-  off.height = H + PAD * 2;
-  offCtx     = off.getContext('2d');
-}
-
-// ── Resize ────────────────────────────────────────────────────────────────
+// ── Resize ─────────────────────────────────────────────────────────────────
+// Both canvases share the same pixel dimensions so they align exactly.
 function onResize () {
-  W = canvas.width  = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-  initOff();
+  W = cl.width  = cr.width  = window.innerWidth;
+  H = cl.height = cr.height = window.innerHeight;
 }
 window.addEventListener('resize', onResize);
 onResize();
 
-// ── Input: desktop mouse ──────────────────────────────────────────────────
+// ── Input: mouse (desktop) ─────────────────────────────────────────────────
 window.addEventListener('mousemove', e => {
   targetBound = e.clientX / W;
 });
 
-// ── Input: mobile touch (drag) ────────────────────────────────────────────
+// ── Input: touch drag (mobile fallback) ───────────────────────────────────
 window.addEventListener('touchmove', e => {
   e.preventDefault();
   targetBound = e.touches[0].clientX / W;
 }, { passive: false });
 
-// ── Input: mobile gyroscope ───────────────────────────────────────────────
-//   gamma = left/right tilt, range −90°…+90°. Clamped to ±42° → mapped 0–1.
-window.addEventListener('deviceorientation', e => {
-  if (e.gamma === null) return;
-  gyroActive  = true;
-  const g     = Math.max(-42, Math.min(42, e.gamma));
-  targetBound = 0.5 + g / 84;
-});
-
-// iOS 13+ requires a user-gesture before DeviceOrientation events fire.
-document.addEventListener('click', () => {
-  if (
-    typeof DeviceOrientationEvent !== 'undefined' &&
-    typeof DeviceOrientationEvent.requestPermission === 'function' &&
-    !gyroActive
-  ) {
-    DeviceOrientationEvent.requestPermission().catch(() => {});
-  }
-}, { once: true });
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-const lerp = (a, b, t) => a + (b - a) * t;
-
-// Three overlapping sine harmonics at different frequencies and phase-offsets
-// create an organic surface that avoids mechanical periodicity.
-// cx = centre-x of boundary in canvas pixels. t = animated time scalar.
-function waveX (y, t, cx) {
-  return cx
-    + WAVE_AMP        * Math.sin(WAVE_FREQ         * y + t)
-    + WAVE_AMP * 0.32 * Math.sin(WAVE_FREQ * 2.17  * y - t * 1.38 + 1.05)
-    + WAVE_AMP * 0.16 * Math.sin(WAVE_FREQ * 4.83  * y + t * 0.61 + 2.53);
+// ── Input: gyroscope ───────────────────────────────────────────────────────
+// gamma = left/right tilt (−90° … +90°). Clamp to ±44° → map to 0–1.
+function onOrientation (e) {
+  const g = e.gamma;
+  if (g === null || g === undefined) return;
+  targetBound = 0.5 + Math.max(-44, Math.min(44, g)) / 88;
 }
 
-// ── Render loop ───────────────────────────────────────────────────────────
-function draw (ts) {
-  const t  = ts * WAVE_SPEED;
+// Register listeners immediately — fires without permission on Android.
+// On iOS the events are silent until permission is granted below.
+window.addEventListener('deviceorientation',         onOrientation, true);
+window.addEventListener('deviceorientationabsolute', onOrientation, true);
 
-  // Lerp the boundary toward its target — this is where the "buttery delay" lives.
-  currentBound = lerp(currentBound, targetBound, LERP_FACTOR);
-  const cx = currentBound * W;   // boundary centre in canvas pixels
-
-  const oW = off.width;
-  const oH = off.height;
-
-  // ── Step 1: Left layer — fills the entire canvas as a solid base ──────
-  const lgL = ctx.createLinearGradient(0, 0, 0, H);
-  lgL.addColorStop(0, C_LEFT_TOP);
-  lgL.addColorStop(1, C_LEFT_BOTTOM);
-  ctx.fillStyle = lgL;
-  ctx.fillRect(0, 0, W, H);
-
-  // ── Step 2: Right layer — built on the padded offscreen canvas ─────────
-  //   All coordinates inside offCtx are shifted +PAD relative to canvas coords
-  //   so the visible area sits surrounded by a buffer that absorbs blur spread.
-  offCtx.clearRect(0, 0, oW, oH);
-  offCtx.save();
-
-  // Closed path enclosing the region to the right of the wave (offscreen coords).
-  offCtx.beginPath();
-  offCtx.moveTo(waveX(0, t, cx) + PAD, 0);    // wave position at canvas y=0, offscreen y=0
-  offCtx.lineTo(oW, 0);                         // across the top to the far-right edge
-  offCtx.lineTo(oW, oH);                        // down the right edge
-  offCtx.lineTo(waveX(H, t, cx) + PAD, oH);    // wave position at canvas y=H, offscreen y=oH
-
-  // Trace the wave upward from canvas bottom to top (3-px steps ≈ imperceptible error).
-  for (let y = H; y >= 0; y -= 3) {
-    offCtx.lineTo(waveX(y, t, cx) + PAD, y + PAD);
+// iOS 13+ requires DeviceOrientationEvent.requestPermission() called directly
+// inside a user-gesture handler. We use touchstart in capture phase so it fires
+// as early as possible (before any other handler consumes the event).
+async function requestGyro () {
+  const Evt = window.DeviceOrientationEvent;
+  if (typeof Evt?.requestPermission === 'function') {
+    try {
+      await Evt.requestPermission();
+      // After grant, iOS begins dispatching events to our already-registered listener.
+    } catch (_) { /* user denied — touch-drag still works */ }
   }
-  offCtx.closePath();
-  offCtx.clip();
+}
+document.addEventListener('touchstart', requestGyro, { once: true, capture: true });
+document.addEventListener('click',      requestGyro, { once: true, capture: true });
 
-  // Right-side gradient — y extents reference the visible canvas area inside the padding.
-  const lgR = offCtx.createLinearGradient(0, PAD, 0, PAD + H);
-  lgR.addColorStop(0, C_RIGHT_TOP);
-  lgR.addColorStop(1, C_RIGHT_BOTTOM);
-  offCtx.fillStyle = lgR;
-  offCtx.fillRect(0, 0, oW, oH);
-  offCtx.restore();
+// ── Helpers ────────────────────────────────────────────────────────────────
+const lerp = (a, b, t) => a + (b - a) * t;
 
-  // ── Step 3: Composite the right layer with Gaussian blur ───────────────
-  //   ctx.filter blur is GPU-accelerated (WebGL path) in Chrome/Firefox/Safari.
-  //   The blur feathers the hard clipped edge of the right layer, turning the
-  //   geometric clip boundary into a fluid, liquid-surface transition.
-  //   Drawing at -PAD maps the padded offscreen back to exact canvas coords.
-  ctx.save();
-  ctx.filter = `blur(${BLEND_BLUR}px)`;
-  ctx.drawImage(off, -PAD, -PAD);
-  ctx.restore();
+// Three-harmonic sine wave gives an organic, non-repeating liquid surface.
+function waveX (y, t, cx) {
+  return cx
+    + WAVE_AMP        * Math.sin(WAVE_FREQ        * y + t)
+    + WAVE_AMP * 0.33 * Math.sin(WAVE_FREQ * 2.17 * y - t * 1.38 + 1.05)
+    + WAVE_AMP * 0.17 * Math.sin(WAVE_FREQ * 4.83 * y + t * 0.61 + 2.53);
+}
+
+// ── Render loop ────────────────────────────────────────────────────────────
+function draw (ts) {
+  const t = ts * WAVE_SPEED;
+  currentBound = lerp(currentBound, targetBound, LERP_FACTOR);
+  const cx = currentBound * W;
+
+  // ── Left canvas: full-screen base layer ───────────────────────────────
+  const gL = ctL.createLinearGradient(0, 0, 0, H);
+  gL.addColorStop(0, C_LEFT_TOP);
+  gL.addColorStop(1, C_LEFT_BOTTOM);
+  ctL.fillStyle = gL;
+  ctL.fillRect(0, 0, W, H);
+
+  // ── Right canvas: wave-clipped layer, CSS-blurred for liquid edge ──────
+  // Extending path coordinates 200 px beyond the canvas on all sides except
+  // the wave boundary ensures the clip is fully opaque at the screen edges.
+  // CSS blur therefore only feathers the wave — not the top/right/bottom rim.
+  ctR.clearRect(0, 0, W, H);
+  ctR.save();
+  ctR.beginPath();
+
+  const EXT = 200; // pixels beyond canvas boundary — absorbs blur at screen edges
+  ctR.moveTo(waveX(0, t, cx),        -EXT);        // wave at top, above canvas
+  ctR.lineTo(W + EXT,                -EXT);         // far top-right
+  ctR.lineTo(W + EXT,                H + EXT);      // far bottom-right
+  ctR.lineTo(waveX(H, t, cx),        H + EXT);      // wave at bottom, below canvas
+
+  // Trace wave boundary upward in 3-px steps (error < 0.01 px)
+  for (let y = H; y >= 0; y -= 3) {
+    ctR.lineTo(waveX(y, t, cx), y);
+  }
+  ctR.closePath();
+  ctR.clip();
+
+  // Fill clipped region; rect extends beyond canvas bounds to cover EXT margins.
+  const gR = ctR.createLinearGradient(0, 0, 0, H);
+  gR.addColorStop(0, C_RIGHT_TOP);
+  gR.addColorStop(1, C_RIGHT_BOTTOM);
+  ctR.fillStyle = gR;
+  ctR.fillRect(-EXT, -EXT, W + EXT * 2, H + EXT * 2);
+  ctR.restore();
 
   requestAnimationFrame(draw);
 }
