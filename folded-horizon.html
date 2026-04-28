@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>The Folded Horizon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0; padding: 0; box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #FFF5F5; /* matches left-side top colour — prevents flash on load */
+    }
+
+    canvas {
+      position: fixed;
+      top: 0; left: 0;
+      display: block;
+    }
+
+    /* ── Central inscription ──────────────────────────────────────────
+       mix-blend-mode: difference inverts the channel values against the
+       pastel background, producing a deep, smoky complement that stays
+       legible across both colour fields and shifts subtly as the boundary
+       sweeps through. */
+    #inscription {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+      user-select: none;
+      z-index: 10;
+      mix-blend-mode: difference;
+      opacity: 0;
+      animation: breatheIn 3s cubic-bezier(.16, 1, .3, 1) 0.6s forwards;
+    }
+
+    @keyframes breatheIn {
+      to { opacity: 1; }
+    }
+
+    .main-date {
+      font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+      font-weight: 300;
+      font-size: clamp(1.9rem, 5.2vw, 4rem);
+      letter-spacing: 0.22em;
+      color: #ffffff;
+      line-height: 1;
+      white-space: nowrap;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .tagline {
+      font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+      font-weight: 300;
+      font-style: italic;
+      font-size: clamp(0.55rem, 1.15vw, 0.9rem);
+      letter-spacing: 0.4em;
+      color: #ffffff;
+      opacity: 0.68;
+      margin-top: 0.85em;
+      white-space: nowrap;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="inscription">
+  <!-- ↓ Edit the inscription text here ↓ -->
+  <div class="main-date">January 26th</div>
+  <div class="tagline">two skies, one timeline.</div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   THE FOLDED HORIZON  ·  fluid timezone canvas  ·  vanilla JS + Canvas 2D
+   ═══════════════════════════════════════════════════════════════════════
+
+   ┌── TWEAKABLE PARAMETERS ─────────────────────────────────────────────┐
+   │ All colour values, physics constants, and text live in this block.   │
+   └─────────────────────────────────────────────────────────────────────┘ */
+
+// ── Colour palettes ───────────────────────────────────────────────────────
+//   Left side  → Malaysia (dawn — warm rose & cream)
+const C_LEFT_TOP    = '#FFF5F5';   // ← top-left   | creamy white
+const C_LEFT_BOTTOM = '#FCE4EC';   // ← bottom-left | pale pink
+
+//   Right side → Sydney (dusk — soft blue-violet)
+const C_RIGHT_TOP    = '#E8EAF6';  // ← top-right    | misted lavender
+const C_RIGHT_BOTTOM = '#C5CAE9';  // ← bottom-right | dusty periwinkle
+
+// ── Fluid physics ─────────────────────────────────────────────────────────
+const LERP_FACTOR = 0.040;   // boundary inertia — lower = dreamier lag [0.01…0.20]
+const WAVE_AMP    = 54;      // oscillation radius in px               [20…150]
+const WAVE_FREQ   = 0.0026;  // wave vertical density                  [0.001…0.008]
+const WAVE_SPEED  = 0.00030; // animation time-scale                   [0.0001…0.001]
+const BLEND_BLUR  = 52;      // boundary softness in px                [20…100]
+// Tip: on low-end mobile reduce BLEND_BLUR to ≈28 for better frame-rate.
+
+/* └── END TWEAKABLE PARAMETERS ──────────────────────────────────────────── */
+
+// ── Canvas setup ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+let W, H;
+let targetBound  = 0.5;   // normalised target x of boundary (0 = full-left, 1 = full-right)
+let currentBound = 0.5;   // lerp-smoothed current position driving the render
+let gyroActive   = false;
+
+// Padded offscreen canvas — the extra PAD pixels on every edge absorb the
+// Gaussian blur so it never clips at the screen border.
+let off, offCtx;
+const PAD = BLEND_BLUR * 2;
+
+function initOff () {
+  off        = document.createElement('canvas');
+  off.width  = W + PAD * 2;
+  off.height = H + PAD * 2;
+  offCtx     = off.getContext('2d');
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────
+function onResize () {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  initOff();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// ── Input: desktop mouse ──────────────────────────────────────────────────
+window.addEventListener('mousemove', e => {
+  targetBound = e.clientX / W;
+});
+
+// ── Input: mobile touch (drag) ────────────────────────────────────────────
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  targetBound = e.touches[0].clientX / W;
+}, { passive: false });
+
+// ── Input: mobile gyroscope ───────────────────────────────────────────────
+//   gamma = left/right tilt, range −90°…+90°. Clamped to ±42° → mapped 0–1.
+window.addEventListener('deviceorientation', e => {
+  if (e.gamma === null) return;
+  gyroActive  = true;
+  const g     = Math.max(-42, Math.min(42, e.gamma));
+  targetBound = 0.5 + g / 84;
+});
+
+// iOS 13+ requires a user-gesture before DeviceOrientation events fire.
+document.addEventListener('click', () => {
+  if (
+    typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceOrientationEvent.requestPermission === 'function' &&
+    !gyroActive
+  ) {
+    DeviceOrientationEvent.requestPermission().catch(() => {});
+  }
+}, { once: true });
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Three overlapping sine harmonics at different frequencies and phase-offsets
+// create an organic surface that avoids mechanical periodicity.
+// cx = centre-x of boundary in canvas pixels. t = animated time scalar.
+function waveX (y, t, cx) {
+  return cx
+    + WAVE_AMP        * Math.sin(WAVE_FREQ         * y + t)
+    + WAVE_AMP * 0.32 * Math.sin(WAVE_FREQ * 2.17  * y - t * 1.38 + 1.05)
+    + WAVE_AMP * 0.16 * Math.sin(WAVE_FREQ * 4.83  * y + t * 0.61 + 2.53);
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────
+function draw (ts) {
+  const t  = ts * WAVE_SPEED;
+
+  // Lerp the boundary toward its target — this is where the "buttery delay" lives.
+  currentBound = lerp(currentBound, targetBound, LERP_FACTOR);
+  const cx = currentBound * W;   // boundary centre in canvas pixels
+
+  const oW = off.width;
+  const oH = off.height;
+
+  // ── Step 1: Left layer — fills the entire canvas as a solid base ──────
+  const lgL = ctx.createLinearGradient(0, 0, 0, H);
+  lgL.addColorStop(0, C_LEFT_TOP);
+  lgL.addColorStop(1, C_LEFT_BOTTOM);
+  ctx.fillStyle = lgL;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Step 2: Right layer — built on the padded offscreen canvas ─────────
+  //   All coordinates inside offCtx are shifted +PAD relative to canvas coords
+  //   so the visible area sits surrounded by a buffer that absorbs blur spread.
+  offCtx.clearRect(0, 0, oW, oH);
+  offCtx.save();
+
+  // Closed path enclosing the region to the right of the wave (offscreen coords).
+  offCtx.beginPath();
+  offCtx.moveTo(waveX(0, t, cx) + PAD, 0);    // wave position at canvas y=0, offscreen y=0
+  offCtx.lineTo(oW, 0);                         // across the top to the far-right edge
+  offCtx.lineTo(oW, oH);                        // down the right edge
+  offCtx.lineTo(waveX(H, t, cx) + PAD, oH);    // wave position at canvas y=H, offscreen y=oH
+
+  // Trace the wave upward from canvas bottom to top (3-px steps ≈ imperceptible error).
+  for (let y = H; y >= 0; y -= 3) {
+    offCtx.lineTo(waveX(y, t, cx) + PAD, y + PAD);
+  }
+  offCtx.closePath();
+  offCtx.clip();
+
+  // Right-side gradient — y extents reference the visible canvas area inside the padding.
+  const lgR = offCtx.createLinearGradient(0, PAD, 0, PAD + H);
+  lgR.addColorStop(0, C_RIGHT_TOP);
+  lgR.addColorStop(1, C_RIGHT_BOTTOM);
+  offCtx.fillStyle = lgR;
+  offCtx.fillRect(0, 0, oW, oH);
+  offCtx.restore();
+
+  // ── Step 3: Composite the right layer with Gaussian blur ───────────────
+  //   ctx.filter blur is GPU-accelerated (WebGL path) in Chrome/Firefox/Safari.
+  //   The blur feathers the hard clipped edge of the right layer, turning the
+  //   geometric clip boundary into a fluid, liquid-surface transition.
+  //   Drawing at -PAD maps the padded offscreen back to exact canvas coords.
+  ctx.save();
+  ctx.filter = `blur(${BLEND_BLUR}px)`;
+  ctx.drawImage(off, -PAD, -PAD);
+  ctx.restore();
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
