@@ -8,5 +8,11 @@
       "port": 5173,
       "autoPort": true
     }
+    ,{
+      "name": "folded-horizon",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "7430", "/Users/qiuruijie/Desktop/coding/XXXcupid.github.io"],
+      "port": 7430
+    }
   ]
 }
